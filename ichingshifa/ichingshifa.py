@@ -1,12 +1,14 @@
 # -*- coding: utf-8 -*-#
 import pickle, random, datetime, os,itertools,re
-from ephem import Date
+from itertools import cycle, repeat
 import numpy as np
-from sxtwl import fromSolar
+from bidict import bidict
 import cn2an
 from cn2an import an2cn
+from ephem import Date
+from sxtwl import fromSolar
 from ichingshifa.jieqi import *
-
+from ichingshifa.d import *
 
 wuxing = "火水金火木金水土土木,水火火金金木土水木土,火火金金木木土土水水,火木水金木水土火金土,木火金水水木火土土金"
 wuxing_relation_2 = dict(zip(list(map(lambda x: tuple(re.findall("..",x)), wuxing.split(","))), "尅我,我尅,比和,生我,我生".split(",")))
@@ -14,6 +16,15 @@ yingyang =  {tuple(list("甲丙戊庚壬")):"陽",tuple(list("乙丁己辛癸"))
 zhiying = dict(zip("寅巳申丑戌未子卯辰亥酉午","巳申寅戌未丑卯子辰亥酉午"))
 ying_chong = dict(zip(list(map(lambda x: tuple(x), "寅巳申丑戌未子卯,午辰酉亥".split(","))),"刑,自刑".split(","))) 
 yingke = {('寅巳', '巳申', '申寅', '丑戌', '戌未', '未丑', '子卯', '卯子', '辰辰', '亥亥', '酉酉', '午午'):"刑"}
+tian_gan = '甲乙丙丁戊己庚辛壬癸'
+di_zhi = '子丑寅卯辰巳午未申酉戌亥'
+
+#%% 甲子平支
+def jiazi():
+    return list(map(lambda x: "{}{}".format(tian_gan[x % len(tian_gan)], di_zhi[x % len(di_zhi)]), list(range(60))))
+
+def repeat_list(n, thelist):
+    return [repetition for i in thelist for repetition in repeat(i,n)]
 
 class Iching():
     #64卦、4096種卦爻組合資料庫，爻由底(左)至上(右)起
@@ -140,7 +151,20 @@ class Iching():
     def show_sixtyfourguadescription(self, gua):
         sixtyfourguadescription = self.sixtyfourgua_description
         return sixtyfourguadescription.get(gua)
-    
+    #五狗遁，起子時
+    def find_lunar_minute(self, hour):
+        fivedogs = {
+        tuple(list('甲己')):'甲戌',
+        tuple(list('乙庚')):'丙戌',
+        tuple(list('丙辛')):'戊戌',
+        tuple(list('丁壬')):'庚戌',
+        tuple(list('戊癸')):'壬戌'
+        }
+        if self.multi_key_dict_get(fivedogs, hour[0]) == None:
+            result = self.multi_key_dict_get(fivedogs, hour[1])
+        else:
+            result = self.multi_key_dict_get(fivedogs, hour[0])
+        return self.new_list(jiazi(), result)
     #五虎遁，起正月
     def find_lunar_month(self, year):
         fivetigers = {
@@ -176,6 +200,7 @@ class Iching():
         return {"年":day.getLunarYear(),  "月": day.getLunarMonth(), "日":day.getLunarDay()}
     #干支
     def gangzhi(self, year, month, day, hour, minute):
+        
         if year == 0:
             return ["無效"]
         if year < 0:
@@ -186,21 +211,39 @@ class Iching():
             d = Date("{}/{}/{} {}:00:00.00".format(str(year).zfill(4), str(month).zfill(2), str(day).zfill(2), str(hour).zfill(2) ))
         dd = list(d.tuple())
         cdate = fromSolar(dd[0], dd[1], dd[2])
-        yTG,mTG,dTG,hTG = "{}{}".format(self.tiangan[cdate.getYearGZ().tg], self.dizhi[cdate.getYearGZ().dz]), "{}{}".format(self.tiangan[cdate.getMonthGZ().tg],self.dizhi[cdate.getMonthGZ().dz]), "{}{}".format(self.tiangan[cdate.getDayGZ().tg], self.dizhi[cdate.getDayGZ().dz]), "{}{}".format(self.tiangan[cdate.getHourGZ(dd[3]).tg], self.dizhi[cdate.getHourGZ(dd[3]).dz])
+        yTG,mTG,dTG,hTG = "{}{}".format(tian_gan[cdate.getYearGZ().tg], di_zhi[cdate.getYearGZ().dz]), "{}{}".format(tian_gan[cdate.getMonthGZ().tg],di_zhi[cdate.getMonthGZ().dz]), "{}{}".format(tian_gan[cdate.getDayGZ().tg], di_zhi[cdate.getDayGZ().dz]), "{}{}".format(tian_gan[cdate.getHourGZ(dd[3]).tg], di_zhi[cdate.getHourGZ(dd[3]).dz])
         if year < 1900:
             mTG1 = self.find_lunar_month(yTG).get(self.lunar_date_d(year, month, day).get("月"))
         else:
             mTG1 = mTG
         hTG1 = self.find_lunar_hour(dTG).get(hTG[1])
-        gangzhi_minute = self.minutes_jiazi_d().get(str(hour)+":"+str(minute))
+        zi = self.gangzhi1(year, month, day, 0, 0)[3]
+        hourminute = str(hour)+":"+str(minute)
+        gangzhi_minute = self.minutes_jiazi_d(zi).get(hourminute)
         return [yTG, mTG1, dTG, hTG1, gangzhi_minute]
-   
+    
+    #換算干支
+    def gangzhi1(self, year, month, day, hour, minute):
+        if hour == 23:
+            d = Date(round((Date("{}/{}/{} {}:00:00.00".format(str(year).zfill(4), str(month).zfill(2), str(day+1).zfill(2), str(0).zfill(2)))), 3))
+        else:
+            d = Date("{}/{}/{} {}:00:00.00".format(str(year).zfill(4), str(month).zfill(2), str(day).zfill(2), str(hour).zfill(2) ))
+        dd = list(d.tuple())
+        cdate = fromSolar(dd[0], dd[1], dd[2])
+        yTG,mTG,dTG,hTG = "{}{}".format(tian_gan[cdate.getYearGZ().tg], di_zhi[cdate.getYearGZ().dz]), "{}{}".format(tian_gan[cdate.getMonthGZ().tg],di_zhi[cdate.getMonthGZ().dz]), "{}{}".format(tian_gan[cdate.getDayGZ().tg], di_zhi[cdate.getDayGZ().dz]), "{}{}".format(tian_gan[cdate.getHourGZ(dd[3]).tg], di_zhi[cdate.getHourGZ(dd[3]).dz])
+        if year < 1900:
+            mTG1 = self.find_lunar_month(yTG).get(self.lunar_date_d(year, month, day).get("月"))
+        else:
+            mTG1 = mTG
+        hTG1 = self.find_lunar_hour(dTG).get(hTG[1])
+        return [yTG, mTG1, dTG, hTG1]
+    
     #分干支
-    def minutes_jiazi_d(self):
+    def minutes_jiazi_d(self, hour):
         t = [f"{h}:{m}" for h in range(24) for m in range(60)]
-        c = list(itertools.chain.from_iterable([[i]*24 for i in self.jiazi()]))
-        #minutelist = dict(zip(t, cycle(repeat_list(2, jiazi()))))
-        return dict(zip(t, c))
+        minutelist = dict(zip(t, cycle(repeat_list(1, self.find_lunar_minute(hour)))))
+        return minutelist
+   
 
     def mget_bookgua_details(self, guayao):
         getgua = self.multi_key_dict_get(self.sixtyfourgua, guayao)
@@ -320,7 +363,7 @@ class Iching():
     #現在時間起卦
     def current_bookgua(self):
         now = datetime.datetime.now()
-        return self.datetime_bookgua(int(now.year), int(now.month), int(now.day), int(now.hour))
+        return self.datetime_bookgua(int(now.year), int(now.month), int(now.day), int(now.hour), int(now.minute))
     
     def dc_gua(self, gua):
         fivestars = self.data.get("五星")
@@ -481,7 +524,6 @@ class Iching():
                 fei = ""
         except (ValueError, IndexError ,AttributeError):
             fei = ""
-        
         return {"本卦":a, "之卦":b, "飛神":fei}
 
     def qigua_time(self, y, m, d, h, minute):
@@ -507,10 +549,45 @@ class Iching():
         if bian_yao == 0:
             bian_yao = int(6)
         elif bian_yao != 0:
-            combine_gua[bian_yao -1] = combine_gua[bian_yao-1].replace("7","9").replace("8","6")
+            b = combine_gua[bian_yao-1].replace("7","9").replace("8","6")
+        b = combine_gua[bian_yao-1].replace("7","9").replace("8","6")
+        combine_gua[bian_yao-1] = b
         bian_gua = "".join(combine_gua)
         ggua = bian_gua.replace("6","7").replace("9","8")
         return {**{'日期':gangzhi[0]+"年"+gangzhi[1]+"月"+gangzhi[2]+"日"+gangzhi[3]+"時"}, **{"大衍筮法":self.mget_bookgua_details(bian_gua)}, **self.decode_two_gua(bian_gua, ggua, gangzhi[2])}
+
+    def qigua_time_minute(self, y, m, d, h, minute):
+        gangzhi = self.gangzhi(y,m,d,h, minute)
+        ld = self.lunar_date_d(y,m,d)
+        zhi_code = dict(zip(self.dizhi, range(1,13)))
+        yz_code = zhi_code.get(gangzhi[0][1])
+        hz_code = zhi_code.get(gangzhi[3][1])
+        minz_code = zhi_code.get(gangzhi[4][1])
+        cm = ld.get("月")
+        cd =  ld.get("日")
+        eightgua = self.data.get("八卦數值")
+        lower_gua_remain = (yz_code +cm+cd+hz_code+minz_code) % 8
+        upper_gua_remain = (yz_code+cm+cd+hz_code) % 8
+        if upper_gua_remain == 0:
+            upper_gua_remain = int(8)
+        upper_gua = eightgua.get(upper_gua_remain)
+        if lower_gua_remain == 0:
+            lower_gua_remain = int(8)
+        lower_gua = eightgua.get(lower_gua_remain)
+        combine_gua1 =lower_gua+upper_gua
+        combine_gua = list(combine_gua1)
+        bian_yao = (yz_code+cm+cd+hz_code+minz_code) % 6
+        if bian_yao == 0:
+            bian_yao = int(6)
+        elif bian_yao != 0:
+            b = combine_gua[bian_yao-1].replace("7","9").replace("8","6")
+        b = combine_gua[bian_yao-1].replace("7","9").replace("8","6")
+        combine_gua[bian_yao-1] = b
+        bian_gua = "".join(combine_gua)
+        ggua = bian_gua.replace("6","7").replace("9","8")
+        return {**{'日期':gangzhi[0]+"年"+gangzhi[1]+"月"+gangzhi[2]+"日"+gangzhi[3]+"時"}, **{"大衍筮法":self.mget_bookgua_details(bian_gua)}, **self.decode_two_gua(bian_gua, ggua, gangzhi[2])}
+
+
 
     def qigua_now(self):
         now = datetime.datetime.now()
@@ -520,7 +597,74 @@ class Iching():
         gangzhi = self.gangzhi(y,m,d,h, minute)
         ggua = gua.replace("6","7").replace("9","8")
         return {**{'日期':gangzhi[0]+"年"+gangzhi[1]+"月"+gangzhi[2]+"日"+gangzhi[3]+"時"}, **{"大衍筮法":self.mget_bookgua_details(gua)}, **self.decode_two_gua(gua, ggua, gangzhi[2])}
-   
+
+#先天策軌數
+    def innate_cegui(self, year, month, day, hour, minute):
+        innate_gua = list("ｏ乾兌離震巽坎艮坤乾")
+        innate_kinkun_num = {tuple([7,9]):216,tuple([6,8]):180}
+        dongyao_position = {tuple([0,1,2]):"下卦",tuple([3,4,5]):"上卦"}
+        gua = self.qigua_time(year, month, day, hour, minute).get("大衍筮法")[0]
+        gua1 = list(str(gua.replace("9","7").replace("6","8")))
+        gua_sum = sum([{"7":36, "8":24}.get(i) for i in gua1])
+        gua2 = list(gua)
+        lower = "".join(gua1[0:3])
+        upper = "".join(gua1[3:6])
+        lower_g = bidict(self.eightgua).inverse[lower]
+        upper_g = bidict(self.eightgua).inverse[upper]
+        try:
+            dy = gua2.index("6")
+        except ValueError:
+            dy = gua2.index("9")
+        dongyao = {0:1,1:2,2:3,3:4,4:5,5:6}.get(dy)    
+        dy_p = multi_key_dict_get(dongyao_position, dy)
+        if dy_p == "下卦":
+            innate_num = (lower_g * 10 * gua_sum) + (dongyao * gua_sum) + gua_sum + (upper_g + lower_g + dongyao)
+        if dy_p == "上卦":
+            innate_num = (dongyao * 10 * gua_sum) + (upper_g * gua_sum) + gua_sum + (upper_g + lower_g + dongyao)
+        if innate_num > 10000:
+            innate_num = (str(innate_num - 10000)).zfill(4)
+        num_to_wuxing = dict(zip(list(range(0,10)),list("空水火木金土水火木金土")))
+        return  [list("元會運世"),  
+                 [cn2an.transform(str(i), "an2cn") for i in list(str(innate_num))], 
+                 [dict(zip(range(0,10), innate_gua)).get(int(i)) for i in list(str(innate_num))],
+                 [num_to_wuxing.get(int(i)) for i in list(str(innate_num))]]
+
+#後天策軌數
+    def acquired_cegui(self, year, month, day, hour, minute):
+        acquired_gua = list("ｏ坎坤震巽ｏ乾兌艮離")
+        innate_kinkun_num = {tuple([7,9]):768,tuple([6,8]):672}
+        dongyao_position = {tuple([0,1,2]):"下卦",tuple([3,4,5]):"上卦"}
+        gua = self.qigua_time(year, month, day, hour, minute).get("大衍筮法")[0]
+        gua1 = list(str(gua.replace("9","7").replace("6","8")))
+        gua_sum = sum([{"7":128, "8":112}.get(i) for i in gua1])
+        gua2 = list(gua)
+        lower = "".join(gua1[0:3])
+        upper = "".join(gua1[3:6])
+        lower_g = bidict(self.eightgua).inverse[lower]
+        upper_g = bidict(self.eightgua).inverse[upper]
+        try:
+            dy = gua2.index("6")
+        except ValueError:
+            dy = gua2.index("9")
+        dongyao = {0:1,1:2,2:3,3:4,4:5,5:6}.get(dy)    
+        dy_p = multi_key_dict_get(dongyao_position, dy)
+        if dy_p == "下卦":
+            innate_num = (lower_g * 10 * gua_sum) + (dongyao * gua_sum) + gua_sum + (upper_g + lower_g + dongyao)
+        if dy_p == "上卦":
+            innate_num = (dongyao * 10 * gua_sum) + (upper_g * gua_sum) + gua_sum + (upper_g + lower_g + dongyao)
+        if innate_num < 10000:
+            innate_num = str(innate_num).zfill(5)
+        num_to_wuxing = dict(zip(list(range(0,10)),list("空水火木金土水火木金土")))
+        #ac_num = [cn2an.transform(str(i), "an2cn") for i in list(str(innate_num))]
+        return  [list("萬元會運世"),  
+                 [cn2an.transform(str(i), "an2cn") for i in list(str(innate_num))], 
+                 [dict(zip(range(0,10), acquired_gua)).get(int(i)) for i in list(str(innate_num))],
+                 [num_to_wuxing.get(int(i)) for i in list(str(innate_num))]]
+	    
+    def get_acquired_code(self, year, month, day, hour, minute):
+        ac = self.acquired_cegui(year, month, day, hour, minute)[1]
+        return acquire_num_dict.get("".join(ac))
+	
     def display_pan_m(self, year, month, day, hour, minute, mgua):
         gz = self.gangzhi(year, month, day, hour, minute)
         oo = self.qigua_manual(year, month, day, hour, minute, mgua).get('大衍筮法')
@@ -626,7 +770,7 @@ class Iching():
         c5 = "日支運︰"+ twelvelucks+"\n"
         c5_1 = "時支運︰"+ twelvelucks_hour1+"\n\n"
         d = "　　　　　　　       　 　{}卦　　　　　　　　　　 　　　　　              　  {}卦                \n".format(bengua.get("卦"), ggua.get("卦"))
-        e = "六神　　   伏神　　       本卦　　　　　　　　　　　               伏神　　  　    之卦\n"
+        e = "六神　  伏神　　         本卦　　　　　　　　　　　       互卦               伏神　　   之卦\n"
         f = "　{} 　　{}　　 {} {}{}{} {} {}{} {}      {}      {}　　 {} {}{}{} {}{}　\n".format(smons[5],fufu[5],b1[5],b2[5],b3[5],b4[5],twelvelucks_hour.get(b3[5][1]),b5[5].replace("六","　"), bg[5],by[5],wgb[5],fufu2[5],g1[5],g2[5],g3[5],g4[5],g5[5].replace("六","　"),gb1[5])
         g = "　{} 　　{}　　 {} {}{}{} {} {}{} {}      {}      {}　　 {} {}{}{} {}{}  \n".format(smons[4],fufu[4],b1[4],b2[4],b3[4],b4[4],twelvelucks_hour.get(b3[4][1]),b5[4].replace("五","　"), bg[4],by[4],wgb[4],fufu2[4],g1[4],g2[4],g3[4],g4[4],g5[4].replace("五","　"),gb1[4])
         h = "　{} 　　{}　　 {} {}{}{} {} {}{} {}      {}      {}　　 {} {}{}{} {}{}  \n".format(smons[3],fufu[3],b1[3],b2[3],b3[3],b4[3],twelvelucks_hour.get(b3[3][1]),b5[3].replace("四","　"), bg[3],by[3],wgb[3],fufu2[3],g1[3],g2[3],g3[3],g4[3],g5[3].replace("四","　"),gb1[3])
@@ -744,26 +888,33 @@ class Iching():
                 o = "【斷主客勝負】\n1.客隊下卦為【{}】，主隊上卦為【{}】，主客關係為【{}】。內卦為我寨，處{}，外卦為彼營，處{}。{}\n2.主隊世爻，{}世爻為【{}】{}{}{}，{}；{}客隊應爻為【{}】{}{}{}，{}主客關係為【{}】，{}。 \n3.{}變為【{}】，主客關係為【{}】。 \n4.動爻【{}】，主隊世爻【{}】，關係為【{}】。 \n5.動爻【{}】，客隊應爻【{}】，關係為【{}】。\n6.{}。\n7.{} \n8.日干下主隊世爻臨【{}】，客隊應爻臨【{}】，時干下{}{}".format(downgua,upgua, down_vs_up,downgua1,upgua1,father_luck,shi_yy,shi[0:4],sk_dist,sguan,s_dist2,s_dist3,shi_monster,ying[0:4],yk_dist,yguan,y_dist2,ying_monster,shi_vs_ying,shi_vs_ying2,dong2, bian, vs, dong[:-1],shi[0:4], vs2, dong[:-1],ying[0:4], vs3, dd_dist,dong_dist, gettwelve.get(shi[2]), gettwelve.get(ying[2]), s_vs_y_dist, gua_no_yao)
             if  flyfu_dist != "":
                 o = "【斷主客勝負】\n1.客隊下卦為【{}】，主隊上卦為【{}】，主客關係為【{}】。內卦為我寨，處{}，外卦為彼營，處{}。{}\n2.主隊世爻，{}世爻為【{}】{}{}{}，{}；{}客隊應爻為【{}】{}{}{}，{}主客關係為【{}】，{}。 \n3.{}變為【{}】，主客關係為【{}】。 \n4.動爻【{}】，主隊世爻【{}】，關係為【{}】。 \n5.動爻【{}】，客隊應爻【{}】，關係為【{}】。\n6.{}{}{} \n7.{} \n8.日干下主隊世爻臨【{}】，客隊應爻臨【{}】，時干下{}{}".format(downgua,upgua, down_vs_up,downgua1,upgua1,father_luck,shi_yy,shi[0:4],sk_dist,sguan,s_dist2,s_dist3,shi_monster,ying[0:4],yk_dist,yguan,y_dist2,ying_monster,shi_vs_ying,shi_vs_ying2,dong2, bian, vs, dong[:-1],shi[0:4], vs2, dong[:-1],ying[0:4], vs3,dd_dist,flyfu_dist,father_lay_dist, dong_dist,gettwelve.get(shi[2]), gettwelve.get(ying[2]), s_vs_y_dist, gua_no_yao)
-        return a+b+c0+c+c1+c2+c3+c4+c5+c5_1+d+e+f+g+h+i+j+k+l+m+n+o
+        p = "\n\n【周易策軌】\n\n先天策數\n"
+        cg = self.innate_cegui(year, month, day, hour, minute)
+        q = "{}\n{}\n{}\n{}\n\n".format("　".join(cg[0]), "　".join(cg[1]), "　".join(cg[2]), "　".join(cg[3]))
+        r = "\n後天策數\n"
+        hcg = self.acquired_cegui(year, month, day, hour, minute)
+        s = "{}\n{}\n{}\n{}\n\n".format("　".join(hcg[0]), "　".join(hcg[1]), "　".join(hcg[2]), "　".join(hcg[3]))
+        t = "{}\n\n".format(self.get_acquired_code(year, month, day, hour, minute))
+        return a+b+c0+c+c1+c2+p+q+r+s+t+c3+c4+c5+c5_1+d+e+f+g+h+i+j+k+l+m+n+o
     
     def display_pan(self, year, month, day, hour, minute):
         gz = self.gangzhi(year, month, day, hour, minute)
-        oo = self.qigua_time(year, month, day, hour, minute).get('大衍筮法')
-        ogua = self.qigua_time(year, month, day, hour, minute).get('大衍筮法')[0]
-        bengua = self.qigua_time(year, month, day, hour, minute).get("本卦")
-        ggua = self.qigua_time(year, month, day, hour, minute).get("之卦")
+        oo = self.qigua_time_minute(year, month, day, hour, minute).get('大衍筮法')
+        ogua = self.qigua_time_minute(year, month, day, hour, minute).get('大衍筮法')[0]
+        bengua = self.qigua_time_minute(year, month, day, hour, minute).get("本卦")
+        ggua = self.qigua_time_minute(year, month, day, hour, minute).get("之卦")
         gb = ogua.replace("9","8").replace("6","7")
         wugua = ogua.replace("9","7").replace("6","8")[1:4]+gb[2:5]
-        b1 = self.qigua_time(year, month, day, hour, minute).get("本卦").get("星宿")
-        b2 = self.qigua_time(year, month, day, hour, minute).get("本卦").get('六親用神')
-        b3 = self.qigua_time(year, month, day, hour, minute).get("本卦").get('納甲')
-        b4 = self.qigua_time(year, month, day, hour, minute).get("本卦").get('五行')
-        b5 = self.qigua_time(year, month, day, hour, minute).get("本卦").get('世應爻')
-        g1 = self.qigua_time(year, month, day, hour, minute).get("之卦").get("星宿")
-        g2 = self.qigua_time(year, month, day, hour, minute).get("之卦").get('六親用神')
-        g3 = self.qigua_time(year, month, day, hour, minute).get("之卦").get('納甲')
-        g4 = self.qigua_time(year, month, day, hour, minute).get("之卦").get('五行')
-        g5 = self.qigua_time(year, month, day, hour, minute).get("之卦").get('世應爻')
+        b1 = self.qigua_time_minute(year, month, day, hour, minute).get("本卦").get("星宿")
+        b2 = self.qigua_time_minute(year, month, day, hour, minute).get("本卦").get('六親用神')
+        b3 = self.qigua_time_minute(year, month, day, hour, minute).get("本卦").get('納甲')
+        b4 = self.qigua_time_minute(year, month, day, hour, minute).get("本卦").get('五行')
+        b5 = self.qigua_time_minute(year, month, day, hour, minute).get("本卦").get('世應爻')
+        g1 = self.qigua_time_minute(year, month, day, hour, minute).get("之卦").get("星宿")
+        g2 = self.qigua_time_minute(year, month, day, hour, minute).get("之卦").get('六親用神')
+        g3 = self.qigua_time_minute(year, month, day, hour, minute).get("之卦").get('納甲')
+        g4 = self.qigua_time_minute(year, month, day, hour, minute).get("之卦").get('五行')
+        g5 = self.qigua_time_minute(year, month, day, hour, minute).get("之卦").get('世應爻')
         try:
             gua_no_yao = {  "父":"卦無【父母】，乃幟不備也。",
                             "妻":"卦無【妻財】，糧草缺絕也。",
@@ -851,7 +1002,7 @@ class Iching():
         c5 = "日支運︰"+ twelvelucks+"\n"
         c5_1 = "時支運︰"+ twelvelucks_hour1+"\n\n"
         d = "　　　　　　　       　 　{}卦　　　　　　　　　　 　　　　　              　  {}卦                \n".format(bengua.get("卦"), ggua.get("卦"))
-        e = "六神　　   伏神　　       本卦　　　　　　　　　　　               伏神　　  　    之卦\n"
+        e = "六神　  伏神　　         本卦　　　　　　　　　　　       互卦               伏神　　   之卦\n"
         f = "　{} 　　{}　　 {} {}{}{} {} {}{} {}      {}      {}　　 {} {}{}{} {}{}　\n".format(smons[5],fufu[5],b1[5],b2[5],b3[5],b4[5],twelvelucks_hour.get(b3[5][1]),b5[5].replace("六","　"), bg[5],by[5],wgb[5],fufu2[5],g1[5],g2[5],g3[5],g4[5],g5[5].replace("六","　"),gb1[5])
         g = "　{} 　　{}　　 {} {}{}{} {} {}{} {}      {}      {}　　 {} {}{}{} {}{}  \n".format(smons[4],fufu[4],b1[4],b2[4],b3[4],b4[4],twelvelucks_hour.get(b3[4][1]),b5[4].replace("五","　"), bg[4],by[4],wgb[4],fufu2[4],g1[4],g2[4],g3[4],g4[4],g5[4].replace("五","　"),gb1[4])
         h = "　{} 　　{}　　 {} {}{}{} {} {}{} {}      {}      {}　　 {} {}{}{} {}{}  \n".format(smons[3],fufu[3],b1[3],b2[3],b3[3],b4[3],twelvelucks_hour.get(b3[3][1]),b5[3].replace("四","　"), bg[3],by[3],wgb[3],fufu2[3],g1[3],g2[3],g3[3],g4[3],g5[3].replace("四","　"),gb1[3])
@@ -966,12 +1117,16 @@ class Iching():
                 o = "【斷主客勝負】\n1.客隊下卦為【{}】，主隊上卦為【{}】，主客關係為【{}】。內卦為我寨，處{}，外卦為彼營，處{}。{}\n2.主隊世爻，{}世爻為【{}】{}{}{}，{}；{}客隊應爻為【{}】{}{}{}，{}主客關係為【{}】，{}。 \n3.{}變為【{}】，主客關係為【{}】。 \n4.動爻【{}】，主隊世爻【{}】，關係為【{}】。 \n5.動爻【{}】，客隊應爻【{}】，關係為【{}】。\n6.{}。\n7.{} \n8.日干下主隊世爻臨【{}】，客隊應爻臨【{}】，時干下{}{}".format(downgua,upgua, down_vs_up,downgua1,upgua1,father_luck,shi_yy,shi[0:4],sk_dist,sguan,s_dist2,s_dist3,shi_monster,ying[0:4],yk_dist,yguan,y_dist2,ying_monster,shi_vs_ying,shi_vs_ying2,dong2, bian, vs, dong[:-1],shi[0:4], vs2, dong[:-1],ying[0:4], vs3, dd_dist,dong_dist, gettwelve.get(shi[2]), gettwelve.get(ying[2]), s_vs_y_dist, gua_no_yao)
             if  flyfu_dist != "":
                 o = "【斷主客勝負】\n1.客隊下卦為【{}】，主隊上卦為【{}】，主客關係為【{}】。內卦為我寨，處{}，外卦為彼營，處{}。{}\n2.主隊世爻，{}世爻為【{}】{}{}{}，{}；{}客隊應爻為【{}】{}{}{}，{}主客關係為【{}】，{}。 \n3.{}變為【{}】，主客關係為【{}】。 \n4.動爻【{}】，主隊世爻【{}】，關係為【{}】。 \n5.動爻【{}】，客隊應爻【{}】，關係為【{}】。\n6.{}{}{} \n7.{} \n8.日干下主隊世爻臨【{}】，客隊應爻臨【{}】，時干下{}{}".format(downgua,upgua, down_vs_up,downgua1,upgua1,father_luck,shi_yy,shi[0:4],sk_dist,sguan,s_dist2,s_dist3,shi_monster,ying[0:4],yk_dist,yguan,y_dist2,ying_monster,shi_vs_ying,shi_vs_ying2,dong2, bian, vs, dong[:-1],shi[0:4], vs2, dong[:-1],ying[0:4], vs3,dd_dist,flyfu_dist,father_lay_dist, dong_dist,gettwelve.get(shi[2]), gettwelve.get(ying[2]), s_vs_y_dist, gua_no_yao)
-        return a+b+c0+c+c1+c2+c3+c4+c5+c5_1+d+e+f+g+h+i+j+k+l+m+n+o
-    #qin_elements
-    #
-    
-    
+        p = "\n\n【周易策軌】\n\n先天策數\n"
+        cg = self.innate_cegui(year, month, day, hour, minute)
+        q = "{}\n{}\n{}\n{}\n\n".format("　".join(cg[0]), "　".join(cg[1]), "　".join(cg[2]), "　".join(cg[3]))
+        r = "\n後天策數\n"
+        hcg = self.acquired_cegui(year, month, day, hour, minute)
+        s = "{}\n{}\n{}\n{}\n\n".format("　".join(hcg[0]), "　".join(hcg[1]), "　".join(hcg[2]), "　".join(hcg[3]))
+        t = "{}\n\n".format(self.get_acquired_code(year, month, day, hour, minute))
+        return a+b+c0+c+c1+c2+p+q+r+s+t+c3+c4+c5+c5_1+d+e+f+g+h+i+j+k+l+m+n+o
+
 if __name__ == '__main__':
-    print(Iching().display_pan(2023,5,30,8,30))
-    #print(Iching().display_pan(2023,5,29,15,30))
+    print(Iching().qigua_time_minute(2024,9,18,0,24))
+    #print(Iching().display_pan(2024,9,13,23,20))
     #print(Iching().qigua_time(2023,5,28,13,30))

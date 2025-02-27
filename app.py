@@ -7,6 +7,8 @@ from io import StringIO
 import streamlit.components.v1 as components
 from ichingshifa import ichingshifa
 
+
+
 @contextmanager
 def st_capture(output_func):
     with StringIO() as stdout, redirect_stdout(stdout):
@@ -29,10 +31,19 @@ def get_file_content_as_string1(path):
     return response.read().decode("utf-8")
 
 st.set_page_config(layout="wide",page_title="堅六爻-周易排盤")
-pan,booktext,oexample,update,links = st.tabs([' 排盤 ',  ' 占訣 ', ' 古占例 ', '日誌', ' 連結 '])
+pan,booktext,oexample,update,links = st.tabs([' 🧮排盤 ',  ' 🚀占訣 ', ' 📜古占例 ', '🆕日誌', ' 🔗連結 '])
+
 with st.sidebar:
     pp_date=st.date_input("日期",pdlm.now(tz='Asia/Shanghai').date())
-    pp_time=st.time_input("時間",pdlm.now(tz='Asia/Shanghai').time())
+   
+
+    # 設置時間初始值
+    if 'pp_time' not in st.session_state:
+        st.session_state.pp_time = pdlm.now(tz='Asia/Shanghai').time()
+
+# 使用儲存的時間初始值
+    pp_time = st.time_input("時間", value=st.session_state.pp_time)
+    st.session_state.pp_time = pp_time
     p = str(pp_date).split("-")
     pp = str(pp_time).split(":")
     y = int(p[0])
@@ -67,7 +78,7 @@ with st.sidebar:
 
 with links:
     st.header('連接')
-    st.markdown(get_file_content_as_string1("update.md"))
+    st.markdown(get_file_content_as_string1("update.md"), unsafe_allow_html=True)
 
 with update:
     st.header('日誌')
@@ -84,7 +95,8 @@ with oexample:
 with pan:
     st.header('堅六爻')
     pan = ichingshifa.Iching().display_pan(y,m,d,h,min)
-    pan_m = ichingshifa.Iching().display_pan_m(y,m,d,h,min,combine)
+    combine1 = ichingshifa.Iching().qigua_time(y,m,d,h,min).get("大衍筮法")[0]
+    pan_m = ichingshifa.Iching().display_pan_m(y,m,d,h,min,combine1)
     output2 = st.empty()
     with st_capture(output2.code):
         if not manual:
